@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	deliveryHttp "github.com/mcmhmump/backend-vet-clinic/internal/delivery/http"
 	"github.com/mcmhmump/backend-vet-clinic/internal/repository"
@@ -23,16 +24,19 @@ func main() {
 	ipRuleUsecase := usecase.NewIPRuleUsecase(ipRuleRepo)
 	ipRuleHandler := deliveryHttp.NewIPRuleHandler(ipRuleUsecase, appLogger)
 
-	mux := http.NewServeMux()
+	rateLimiter := usecase.NewRateLimiter(5, 10*time.Second)
 
+	mux := http.NewServeMux()
 	mux.HandleFunc("GET /example/ip_access/allowlists", ipRuleHandler.GetAll)
 	mux.HandleFunc("POST /example/ip_access/allowlists", ipRuleHandler.Create)
 	mux.HandleFunc("DELETE /example/ip_access/allowlists/{id}", ipRuleHandler.Delete)
 	mux.HandleFunc("GET /example/ip_access/check", ipRuleHandler.CheckIP)
 
+	handlerWithRateLimit := usecase.RateLimitMiddleware(rateLimiter, mux)
+
 	appLogger.Info("management api started", zap.String("port", ":8000"))
 
-	if err := http.ListenAndServe(":8000", mux); err != nil {
+	if err := http.ListenAndServe(":8000", handlerWithRateLimit); err != nil {
 		appLogger.Fatal("server failed", zap.Error(err))
 	}
 }
