@@ -1,0 +1,9 @@
+ip_access:
+  default_policy: "allow"
+  blacklist:
+    - "192.168.1.100"
+  whitelist:
+    - "127.0.0.1"
+    - "::1"
+  greylist:
+    - "172.16.0.0/12"
