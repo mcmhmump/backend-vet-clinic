@@ -16,6 +16,14 @@ func NewCacheHandler(cache *usecase.CacheService) *CacheHandler {
 	return &CacheHandler{cache: cache}
 }
 
+// InvalidateCache godoc
+// @Summary Инвалидация кэша
+// @Description Очищает весь кэш или удаляет запись по ключу
+// @Tags cache
+// @Produce json
+// @Param key query string false "Ключ кэша"
+// @Success 200 {object} map[string]string
+// @Router /example/cache [delete]
 func (h *CacheHandler) InvalidateCache(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 
