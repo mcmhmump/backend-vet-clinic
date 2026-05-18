@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -20,32 +21,41 @@ func main() {
 		appLogger.Fatal("failed to connect database", zap.Error(err))
 	}
 
-	// Инициализация репозиториев
 	ipRuleRepo := repository.NewIPRuleRepository(db)
 	accessLogRepo := repository.NewAccessLogRepository(db)
 
-	// Инициализация бизнес-логики (Usecase / Services)
 	ipRuleUsecase := usecase.NewIPRuleUsecase(ipRuleRepo)
 	metricsService := usecase.NewMetricsService()
 	rateLimiter := usecase.NewRateLimiter(5, 10*time.Second)
+	cacheService := usecase.NewCacheService()
 
-	// Инициализация HTTP обработчиков
 	ipRuleHandler := deliveryHttp.NewIPRuleHandler(ipRuleUsecase, appLogger, accessLogRepo, metricsService)
 	monitoringHandler := deliveryHttp.NewMonitoringHandler(metricsService)
+	cacheHandler := deliveryHttp.NewCacheHandler(cacheService)
 
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("GET /example/ip_access/allowlists", ipRuleHandler.GetAll)
 	mux.HandleFunc("POST /example/ip_access/allowlists", ipRuleHandler.Create)
 	mux.HandleFunc("DELETE /example/ip_access/allowlists/{id}", ipRuleHandler.Delete)
 	mux.HandleFunc("GET /example/ip_access/check", ipRuleHandler.CheckIP)
-
-	// НОВЫЙ ЭНДПОИНТ ДЛЯ МЕТРИК
 	mux.HandleFunc("GET /example/metrics", monitoringHandler.GetMetrics)
+	mux.HandleFunc("DELETE /example/cache", cacheHandler.InvalidateCache)
 
-	// Оборачиваем роутер в Rate Limiting Middleware
+	mux.HandleFunc("GET /example/cache/demo", deliveryHttp.CacheMiddleware(cacheService, 30*time.Second, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":   "slow data generated",
+			"source":    "server",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	}))
+
 	handlerWithRateLimit := usecase.RateLimitMiddleware(rateLimiter, mux)
 
-	appLogger.Info("proxy and monitoring api started", zap.String("port", ":8000"))
+	appLogger.Info("proxy api started", zap.String("port", ":8000"))
 
 	if err := http.ListenAndServe(":8000", handlerWithRateLimit); err != nil {
 		appLogger.Fatal("server failed", zap.Error(err))
