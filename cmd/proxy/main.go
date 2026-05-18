@@ -9,7 +9,14 @@ import (
 	"github.com/mcmhmump/backend-vet-clinic/internal/repository"
 	"github.com/mcmhmump/backend-vet-clinic/internal/usecase"
 	"github.com/mcmhmump/backend-vet-clinic/pkg/logger"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"go.uber.org/zap"
+
+	// НОВЫЕ ИМПОРТЫ ДЛЯ СВАГГЕРА И МЕТРИК:
+	"path/filepath"
+
+	_ "github.com/mcmhmump/backend-vet-clinic/docs" // подключаем сгенерированные доки
 )
 
 // @title Vet Clinic Proxy API
@@ -39,6 +46,77 @@ func main() {
 	cacheHandler := deliveryHttp.NewCacheHandler(cacheService)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join("web", "dashboard.html"))
+	})
+	mux.HandleFunc("GET /dashboard/summary", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"total_requests":     128,
+			"average_latency_ms": 84,
+			"active_connections": 6,
+			"traffic_bytes":      245760,
+			"top_clients": []map[string]interface{}{
+				{
+					"ip":            "127.0.0.1",
+					"requests":      54,
+					"traffic_bytes": 128000,
+					"status":        "active",
+				},
+				{
+					"ip":            "192.168.1.10",
+					"requests":      31,
+					"traffic_bytes": 86000,
+					"status":        "active",
+				},
+				{
+					"ip":            "10.0.0.15",
+					"requests":      19,
+					"traffic_bytes": 42000,
+					"status":        "limited",
+				},
+			},
+			"upstream": []map[string]interface{}{
+				{
+					"name":       "proxy-backend",
+					"health":     "UP",
+					"latency_ms": 84,
+					"errors":     0,
+				},
+				{
+					"name":       "database",
+					"health":     "UP",
+					"latency_ms": 21,
+					"errors":     0,
+				},
+				{
+					"name":       "cache",
+					"health":     "WARN",
+					"latency_ms": 5,
+					"errors":     1,
+				},
+			},
+			"rate_limits": map[string]interface{}{
+				"current_limit": "5 req / 10 sec",
+				"offenders": []map[string]interface{}{
+					{
+						"ip":         "10.0.0.15",
+						"violations": 3,
+					},
+					{
+						"ip":         "172.16.0.5",
+						"violations": 2,
+					},
+				},
+			},
+			"ip_filtering": map[string]interface{}{
+				"allowlist":         []string{"127.0.0.1", "::1"},
+				"denylist":          []string{"192.168.1.100"},
+				"rejected_requests": 4,
+			},
+		})
+	})
 
 	mux.HandleFunc("GET /example/ip_access/allowlists", ipRuleHandler.GetAll)
 	mux.HandleFunc("POST /example/ip_access/allowlists", ipRuleHandler.Create)
@@ -58,6 +136,8 @@ func main() {
 		})
 	}))
 
+	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
+	mux.Handle("GET /metrics", promhttp.Handler())
 	handlerWithRateLimit := usecase.RateLimitMiddleware(rateLimiter, mux)
 
 	appLogger.Info("proxy api started", zap.String("port", ":8000"))

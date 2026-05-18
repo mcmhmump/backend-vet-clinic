@@ -1,0 +1,144 @@
+basePath: /
+definitions:
+  domain.IPRule:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      list_type:
+        type: string
+      updated_at:
+        type: string
+      value:
+        type: string
+    type: object
+  http.CreateIPRuleRequest:
+    properties:
+      list_type:
+        type: string
+      value:
+        type: string
+    type: object
+host: localhost:8000
+info:
+  contact: {}
+  description: API прокси-сервиса для управления IP-доступом, rate limiting, мониторингом
+    и кэшированием.
+  title: Vet Clinic Proxy API
+  version: "1.0"
+paths:
+  /example/cache:
+    delete:
+      description: Очищает весь кэш или удаляет запись по ключу
+      parameters:
+      - description: Ключ кэша
+        in: query
+        name: key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Инвалидация кэша
+      tags:
+      - cache
+  /example/ip_access/allowlists:
+    get:
+      description: Возвращает список правил доступа из базы данных
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.IPRule'
+            type: array
+      summary: Получить все IP-правила
+      tags:
+      - ip_access
+    post:
+      consumes:
+      - application/json
+      description: Создает новое правило в whitelist/blacklist/greylist
+      parameters:
+      - description: Новое IP-правило
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.CreateIPRuleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Добавить IP-правило
+      tags:
+      - ip_access
+  /example/ip_access/allowlists/{id}:
+    delete:
+      description: Удаляет правило по ID
+      parameters:
+      - description: ID правила
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Удалить IP-правило
+      tags:
+      - ip_access
+  /example/ip_access/check:
+    get:
+      description: Проверяет, разрешен ли доступ для указанного IP
+      parameters:
+      - description: IP адрес
+        in: query
+        name: ip
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Проверить IP
+      tags:
+      - ip_access
+  /example/metrics:
+    get:
+      description: Возвращает статистику сервиса в памяти
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Получить метрики
+      tags:
+      - monitoring
+swagger: "2.0"
