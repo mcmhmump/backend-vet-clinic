@@ -12,6 +12,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// @title Vet Clinic Proxy API
+// @version 1.0
+// @description API прокси-сервиса для управления IP-доступом, rate limiting, мониторингом и кэшированием.
+// @host localhost:8000
+// @BasePath /
 func main() {
 	appLogger := logger.New()
 	defer appLogger.Sync()
