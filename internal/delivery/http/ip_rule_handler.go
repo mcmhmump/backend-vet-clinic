@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/mcmhmump/backend-vet-clinic/internal/domain"
+	"github.com/mcmhmump/backend-vet-clinic/internal/repository"
 	"github.com/mcmhmump/backend-vet-clinic/internal/usecase"
 	"go.uber.org/zap"
 )
@@ -12,6 +15,8 @@ import (
 type IPRuleHandler struct {
 	usecase *usecase.IPRuleUsecase
 	logger  *zap.Logger
+	logRepo *repository.AccessLogRepository
+	metrics *usecase.MetricsService
 }
 
 type CreateIPRuleRequest struct {
@@ -19,80 +24,53 @@ type CreateIPRuleRequest struct {
 	Value    string `json:"value"`
 }
 
-func NewIPRuleHandler(usecase *usecase.IPRuleUsecase, logger *zap.Logger) *IPRuleHandler {
-	return &IPRuleHandler{
-		usecase: usecase,
-		logger:  logger,
-	}
+func NewIPRuleHandler(u *usecase.IPRuleUsecase, l *zap.Logger, repo *repository.AccessLogRepository, m *usecase.MetricsService) *IPRuleHandler {
+	return &IPRuleHandler{usecase: u, logger: l, logRepo: repo, metrics: m}
 }
 
 func (h *IPRuleHandler) GetAll(w http.ResponseWriter, r *http.Request) {
-	rules, err := h.usecase.GetAll()
-	if err != nil {
-		http.Error(w, "failed to load rules", http.StatusInternalServerError)
-		return
-	}
-
+	rules, _ := h.usecase.GetAll()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(rules)
 }
 
 func (h *IPRuleHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req CreateIPRuleRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.ListType == "" || req.Value == "" {
-		http.Error(w, "list_type and value are required", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.usecase.Create(req.ListType, req.Value); err != nil {
-		http.Error(w, "failed to create rule", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
+	json.NewDecoder(r.Body).Decode(&req)
+	h.usecase.Create(req.ListType, req.Value)
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "created",
-	})
+	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 }
 
 func (h *IPRuleHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
-	id64, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.usecase.DeleteByID(uint(id64)); err != nil {
-		http.Error(w, "failed to delete rule", http.StatusInternalServerError)
-		return
-	}
-
+	id64, _ := strconv.ParseUint(idStr, 10, 64)
+	h.usecase.DeleteByID(uint(id64))
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "deleted",
-	})
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 }
 
 func (h *IPRuleHandler) CheckIP(w http.ResponseWriter, r *http.Request) {
 	ip := r.URL.Query().Get("ip")
 	if ip == "" {
-		http.Error(w, "ip query param is required", http.StatusBadRequest)
+		http.Error(w, "ip is required", http.StatusBadRequest)
 		return
 	}
 
-	allowed, reason, err := h.usecase.CheckIP(ip)
-	if err != nil {
-		http.Error(w, "failed to check ip", http.StatusInternalServerError)
-		return
-	}
+	allowed, reason, _ := h.usecase.CheckIP(ip)
+
+	// АСИНХРОННАЯ ЗАПИСЬ (Требование 3.1.3)
+	go func() {
+		logEntry := &domain.AccessLog{
+			ClientIP:  ip,
+			URL:       r.URL.Path,
+			Allowed:   allowed,
+			Reason:    reason,
+			CreatedAt: time.Now(),
+		}
+		h.logRepo.Create(logEntry)       // Пишем в SQLite
+		h.metrics.RecordRequest(allowed) // Обновляем метрики в памяти
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
